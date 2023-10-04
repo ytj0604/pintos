@@ -89,6 +89,7 @@ struct thread
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
+    int64_t tick_to_wakeup;  //If thread is delayed, the tick to wakeup.
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
@@ -106,6 +107,8 @@ struct thread
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
+extern int64_t least_wakeup_tick;   //the least tick to wakeup of the threads in the delayed_list.
+
 
 void thread_init (void);
 void thread_start (void);
@@ -138,4 +141,7 @@ void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
+void thread_sleep(int64_t);
+bool thread_less_tick (const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED) ;
+struct list* get_delayed_list_ptr(void);
 #endif /* threads/thread.h */

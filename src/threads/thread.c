@@ -23,6 +23,8 @@
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 static struct list ready_list;
+static struct list delayed_list;  //list of the delayed threads.
+int64_t least_wakeup_tick;
 
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
@@ -92,6 +94,8 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
+  list_init (&delayed_list);
+  least_wakeup_tick = INT64_MAX;
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -582,3 +586,37 @@ allocate_tid (void)
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
+
+bool
+thread_less_tick (const struct list_elem *a_, const struct list_elem *b_,
+            void *aux UNUSED) 
+{
+  const struct thread *a = list_entry (a_, struct thread, elem);
+  const struct thread *b = list_entry (b_, struct thread, elem);
+  
+  return a->tick_to_wakeup < b->tick_to_wakeup;
+}
+
+void thread_sleep(int64_t tick_to_wakeup)
+{
+  struct thread *cur = thread_current ();
+  enum intr_level old_level;
+  ASSERT (!intr_context ());
+
+  cur->status = THREAD_BLOCKED;
+  cur->tick_to_wakeup = tick_to_wakeup;
+
+  old_level = intr_disable ();
+
+  if (cur != idle_thread) 
+    list_insert_ordered (&delayed_list, &cur->elem, thread_less_tick, NULL);  //Insert the thread in the delayed list at the position that ordered with tick_to_wakeup.
+  if (least_wakeup_tick > tick_to_wakeup)
+    least_wakeup_tick = tick_to_wakeup;
+  schedule();
+  intr_set_level (old_level);
+}
+
+struct list* get_delayed_list_ptr()
+{
+  return &delayed_list;
+}
