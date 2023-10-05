@@ -248,11 +248,10 @@ thread_unblock (struct thread *t)
     refresh_priority(t->donee, true);
     t->donee = NULL;
   }
-  // list_insert_ordered (&ready_list, &t->elem, thread_greater_priority_elem, NULL);
-  list_push_back(&ready_list, &t->elem);
+  list_insert_ordered (&ready_list, &t->elem, thread_greater_priority_elem, NULL);
   t->status = THREAD_READY;
-  if(t->priority > thread_current()->priority) 
-    thread_yield();
+  // if(t->priority > thread_current()->priority) 
+  //   thread_yield(); //NOTE: is this unnecessary?
   intr_set_level (old_level);
 }
 
@@ -633,7 +632,7 @@ void thread_sleep(int64_t tick_to_wakeup)
   enum intr_level old_level;
   ASSERT (!intr_context ());
 
-  cur->status = THREAD_BLOCKED;
+  // cur->status = THREAD_BLOCKED;
   cur->tick_to_wakeup = tick_to_wakeup;
 
   old_level = intr_disable ();
@@ -642,7 +641,8 @@ void thread_sleep(int64_t tick_to_wakeup)
     list_insert_ordered (&delayed_list, &cur->elem, thread_less_tick, NULL);  //Insert the thread in the delayed list at the position that ordered with tick_to_wakeup.
   if (least_wakeup_tick > tick_to_wakeup)
     least_wakeup_tick = tick_to_wakeup;
-  schedule();
+  // schedule();
+  thread_block();
   intr_set_level (old_level);
 }
 
