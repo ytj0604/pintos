@@ -87,12 +87,17 @@ struct thread
     enum thread_status status;          /* Thread state. */
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
-    int priority;                       /* Priority. */
+    int priority;                       /* Priority. */ //This is priority considering donation.
+    int priority_orig;                  // Original priority
     struct list_elem allelem;           /* List element for all threads list. */
     int64_t tick_to_wakeup;  //If thread is delayed, the tick to wakeup.
-
+    struct lock* lock_to_get;      //A lock that this thread is waiting for. Do not care semaphore due to requirement.
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
+
+    struct list donors;                 //List of thread who donated priority to this thread.
+    struct list_elem donation_elem;          //Element of donors list.
+    struct thread* donee;               //A thread that this thread donated to.
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -144,4 +149,8 @@ int thread_get_load_avg (void);
 void thread_sleep(int64_t);
 bool thread_less_tick (const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED) ;
 struct list* get_delayed_list_ptr(void);
+bool thread_greater_priority_elem(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED);
+bool thread_greater_priority_donation_elem(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED);
+void donate_priority(struct thread* donor_thread);
+void refresh_priority(struct thread* donee_thread, bool first_layer);
 #endif /* threads/thread.h */
