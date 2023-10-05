@@ -204,6 +204,8 @@ thread_create (const char *name, int priority,
   /* Add to run queue. */
   // printf("Create thread\n");
   thread_unblock (t);
+  if(t->priority > thread_current()->priority) 
+    thread_yield();
 
   return tid;
 }
@@ -695,11 +697,12 @@ void donate_priority(struct thread* donor_thread)
 
 void refresh_priority(struct thread* donee_thread, bool first_layer)
 {
+  //NOTE: this funciton could be invoked if donee thread has no donor currently.
   enum intr_level old_level = intr_disable ();
 
   list_sort(&donee_thread->donors, thread_greater_priority_donation_elem, NULL); //Now donors is sorted in dec order.
-  ASSERT(!list_empty(&donee_thread->donors)); //This function is called only if the thread is a donee.
-  int pri_max_donation = list_entry(list_begin(&donee_thread->donors), struct thread, donation_elem)->priority;
+  // ASSERT(!list_empty(&donee_thread->donors)); //Not this.
+  int pri_max_donation = list_empty(&donee_thread->donors) ? PRI_MIN : list_entry(list_begin(&donee_thread->donors), struct thread, donation_elem)->priority;
   donee_thread->priority = donee_thread->priority_orig < pri_max_donation ? pri_max_donation : donee_thread->priority_orig;
 
   if(donee_thread->donee) {
