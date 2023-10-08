@@ -11,6 +11,7 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "threads/fixed-point.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -25,6 +26,7 @@
 static struct list ready_list;
 static struct list delayed_list;  //list of the delayed threads.
 int64_t least_wakeup_tick;
+int load_avg;
 
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
@@ -96,6 +98,7 @@ thread_init (void)
   list_init (&all_list);
   list_init (&delayed_list);
   least_wakeup_tick = INT64_MAX;
+  load_avg = 0;
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -378,34 +381,66 @@ thread_get_priority (void)
 
 /* Sets the current thread's nice value to NICE. */
 void
-thread_set_nice (int nice UNUSED) 
+thread_set_nice (int nice) 
 {
-  /* Not yet implemented. */
+  enum intr_level old_level = intr_disable ();
+
+  struct thread *t = thread_current();
+  t->nice = nice;
+  refresh_priority_mlfqs(t, NULL);
+  sort_ready_list();
+  if(!list_empty(&ready_list) && list_entry(list_begin(&ready_list), struct thread, elem)->priority > thread_current()->priority)
+    thread_yield();
+  intr_set_level(old_level);
 }
 
 /* Returns the current thread's nice value. */
 int
 thread_get_nice (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return thread_current()->nice;
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return fp2int_roundnear(mul_fp_int(load_avg, 100));
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return fp2int_roundnear(mul_fp_int(thread_current()->recent_cpu, 100));
 }
+
+void refresh_recent_cpu(struct thread* t, void* aux UNUSED) 
+{
+  if(t == idle_thread) return;
+  enum intr_level old_level = intr_disable ();
+
+  t->recent_cpu = add_fp_int(mul_fp_fp(div_fp_fp(mul_fp_int(load_avg, 2), add_fp_int(mul_fp_int(load_avg, 2), 1)), t->recent_cpu), t->nice);
+
+  intr_set_level(old_level);
+}
+
+void refresh_load_avg(void)
+{
+  enum intr_level old_level = intr_disable ();
+
+  int ready_threads = list_size(&ready_list);
+  if(thread_current() != idle_thread) ready_threads++; //Include the current thread. Idle thread is not put to the ready list.
+
+  load_avg = add_fp_fp(div_fp_int(mul_fp_int(load_avg, 59), 60), div_fp_fp(int2fp(ready_threads), int2fp(60)));
+
+  intr_set_level(old_level);
+}
+
+void refresh_priority_mlfqs(struct thread* t, void* aux UNUSED) {
+  t->priority = fp2int_round0(sub_fp_fp(sub_fp_fp(int2fp(PRI_MAX), div_fp_int(t->recent_cpu, 4)), int2fp(2 * (t->nice))));
+}
+
 
 /* Idle thread.  Executes when no other thread is ready to run.
 
@@ -498,7 +533,8 @@ init_thread (struct thread *t, const char *name, int priority)
   t->lock_to_get = NULL;
   t->donee = NULL;
   list_init(&t->donors); //This is thread safe. No other thread will see or modify inconsistent data.
-
+  t->nice = 0;
+  t->recent_cpu = 0;
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);
@@ -680,7 +716,7 @@ void donate_priority(struct thread* donor_thread)
 {
   //donor_thread want to donate priority to a owner of lock_to_get.
   //This function will not directly modify the priority of donee. Call refresh_priority() instead.
-
+  if(thread_mlfqs) return;
   ASSERT(thread_current() == donor_thread);
   if(!donor_thread->lock_to_get) return;
 
@@ -698,6 +734,7 @@ void donate_priority(struct thread* donor_thread)
 void refresh_priority(struct thread* donee_thread, bool first_layer)
 {
   //NOTE: this funciton could be invoked if donee thread has no donor currently.
+  if(thread_mlfqs) return;
   enum intr_level old_level = intr_disable ();
 
   list_sort(&donee_thread->donors, thread_greater_priority_donation_elem, NULL); //Now donors is sorted in dec order.
@@ -714,4 +751,12 @@ void refresh_priority(struct thread* donee_thread, bool first_layer)
   }
 
   intr_set_level(old_level);
+}
+
+struct thread* get_idle_thread_ptr(void) {
+  return idle_thread;
+}
+
+void sort_ready_list(void) {
+  list_sort(&ready_list, thread_greater_priority_elem, NULL);
 }
