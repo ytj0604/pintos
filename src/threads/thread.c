@@ -11,6 +11,7 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "threads/fixed-point.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -23,6 +24,9 @@
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 static struct list ready_list;
+static struct list delayed_list;  //list of the delayed threads.
+int64_t least_wakeup_tick;
+int load_avg;
 
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
@@ -92,6 +96,9 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
+  list_init (&delayed_list);
+  least_wakeup_tick = INT64_MAX;
+  load_avg = 0;
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -112,7 +119,6 @@ thread_start (void)
 
   /* Start preemptive thread scheduling. */
   intr_enable ();
-
   /* Wait for the idle thread to initialize idle_thread. */
   sema_down (&idle_started);
 }
@@ -199,7 +205,10 @@ thread_create (const char *name, int priority,
   sf->ebp = 0;
 
   /* Add to run queue. */
+  // printf("Create thread\n");
   thread_unblock (t);
+  if(t->priority > thread_current()->priority) 
+    thread_yield();
 
   return tid;
 }
@@ -237,8 +246,17 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+
+  if(t->donee) {
+    ASSERT(!list_empty(&t->donee->donors));
+    list_remove(&t->donation_elem);
+    refresh_priority(t->donee, true);
+    t->donee = NULL;
+  }
+  list_insert_ordered (&ready_list, &t->elem, thread_greater_priority_elem, NULL);
   t->status = THREAD_READY;
+  // if(t->priority > thread_current()->priority) 
+  //   thread_yield(); //NOTE: is this unnecessary?
   intr_set_level (old_level);
 }
 
@@ -308,7 +326,13 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_push_back (&ready_list, &cur->elem);
+  {
+    if(list_entry(list_begin(&ready_list), struct thread, elem)->priority < thread_current()->priority) {
+      intr_set_level (old_level);
+      return; //If current thread has the greatest pri, then not yield.
+    }
+    else list_insert_ordered (&ready_list,  &cur->elem, thread_greater_priority_elem, NULL);
+  }
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -335,7 +359,17 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->priority = new_priority;
+  thread_current ()->priority_orig = new_priority;
+  if(!list_empty(&thread_current() -> donors)) {
+    refresh_priority(thread_current(), true);
+  }
+  else {
+    thread_current()->priority = thread_current()->priority_orig;
+  }
+  ASSERT(!thread_current()->donee); //Current thread is running. Which means that this thread is not waiting for any lock. So it cannot have donated now.
+  // ASSERT (is_sorted (list_begin (&ready_list), list_end (&ready_list), thread_greater_priority_elem, NULL));
+  if(!list_empty(&ready_list) && list_entry(list_begin(&ready_list), struct thread, elem)->priority > thread_current()->priority)
+    thread_yield();
 }
 
 /* Returns the current thread's priority. */
@@ -347,34 +381,66 @@ thread_get_priority (void)
 
 /* Sets the current thread's nice value to NICE. */
 void
-thread_set_nice (int nice UNUSED) 
+thread_set_nice (int nice) 
 {
-  /* Not yet implemented. */
+  enum intr_level old_level = intr_disable ();
+
+  struct thread *t = thread_current();
+  t->nice = nice;
+  refresh_priority_mlfqs(t, NULL);
+  sort_ready_list();
+  if(!list_empty(&ready_list) && list_entry(list_begin(&ready_list), struct thread, elem)->priority > thread_current()->priority)
+    thread_yield();
+  intr_set_level(old_level);
 }
 
 /* Returns the current thread's nice value. */
 int
 thread_get_nice (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return thread_current()->nice;
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return fp2int_roundnear(mul_fp_int(load_avg, 100));
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return fp2int_roundnear(mul_fp_int(thread_current()->recent_cpu, 100));
 }
+
+void refresh_recent_cpu(struct thread* t, void* aux UNUSED) 
+{
+  if(t == idle_thread) return;
+  enum intr_level old_level = intr_disable ();
+
+  t->recent_cpu = add_fp_int(mul_fp_fp(div_fp_fp(mul_fp_int(load_avg, 2), add_fp_int(mul_fp_int(load_avg, 2), 1)), t->recent_cpu), t->nice);
+
+  intr_set_level(old_level);
+}
+
+void refresh_load_avg(void)
+{
+  enum intr_level old_level = intr_disable ();
+
+  int ready_threads = list_size(&ready_list);
+  if(thread_current() != idle_thread) ready_threads++; //Include the current thread. Idle thread is not put to the ready list.
+
+  load_avg = add_fp_fp(div_fp_int(mul_fp_int(load_avg, 59), 60), div_fp_fp(int2fp(ready_threads), int2fp(60)));
+
+  intr_set_level(old_level);
+}
+
+void refresh_priority_mlfqs(struct thread* t, void* aux UNUSED) {
+  t->priority = fp2int_round0(sub_fp_fp(sub_fp_fp(int2fp(PRI_MAX), div_fp_int(t->recent_cpu, 4)), int2fp(2 * (t->nice))));
+}
+
 
 /* Idle thread.  Executes when no other thread is ready to run.
 
@@ -462,8 +528,13 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->priority_orig = priority;
   t->magic = THREAD_MAGIC;
-
+  t->lock_to_get = NULL;
+  t->donee = NULL;
+  list_init(&t->donors); //This is thread safe. No other thread will see or modify inconsistent data.
+  t->nice = 0;
+  t->recent_cpu = 0;
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);
@@ -582,3 +653,110 @@ allocate_tid (void)
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
+
+bool
+thread_less_tick (const struct list_elem *a_, const struct list_elem *b_,
+            void *aux UNUSED) 
+{
+  const struct thread *a = list_entry (a_, struct thread, elem);
+  const struct thread *b = list_entry (b_, struct thread, elem);
+  
+  return a->tick_to_wakeup < b->tick_to_wakeup;
+}
+
+void thread_sleep(int64_t tick_to_wakeup)
+{
+  struct thread *cur = thread_current ();
+  enum intr_level old_level;
+  ASSERT (!intr_context ());
+
+  // cur->status = THREAD_BLOCKED;
+  cur->tick_to_wakeup = tick_to_wakeup;
+
+  old_level = intr_disable ();
+
+  if (cur != idle_thread) 
+    list_insert_ordered (&delayed_list, &cur->elem, thread_less_tick, NULL);  //Insert the thread in the delayed list at the position that ordered with tick_to_wakeup.
+  if (least_wakeup_tick > tick_to_wakeup)
+    least_wakeup_tick = tick_to_wakeup;
+  // schedule();
+  thread_block();
+  intr_set_level (old_level);
+}
+
+struct list* get_delayed_list_ptr()
+{
+  return &delayed_list;
+}
+
+bool thread_greater_priority_elem(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED)
+{
+  //New thread is inserted to a list before a element that satisfy condition.
+  //Therefore, new thread should "Not be greater" than the threads in list.
+  //So that new thread will be inserted before a thread which is strictly less than new.
+
+  const struct thread *a = list_entry (a_, struct thread, elem);
+  const struct thread *b = list_entry (b_, struct thread, elem);
+  return a->priority > b->priority; //This returns false if a's priority is equal to b's.
+}
+
+
+bool thread_greater_priority_donation_elem(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED)
+{
+  //New thread is inserted to a list before a element that satisfy condition.
+  //Therefore, new thread should "Not be greater" than the threads in list.
+  //So that new thread will be inserted before a thread which is strictly less than new.
+
+  const struct thread *a = list_entry (a_, struct thread, donation_elem);
+  const struct thread *b = list_entry (b_, struct thread, donation_elem);
+  return a->priority > b->priority; //This returns false if a's priority is equal to b's.
+}
+
+void donate_priority(struct thread* donor_thread)
+{
+  //donor_thread want to donate priority to a owner of lock_to_get.
+  //This function will not directly modify the priority of donee. Call refresh_priority() instead.
+  if(thread_mlfqs) return;
+  ASSERT(thread_current() == donor_thread);
+  if(!donor_thread->lock_to_get) return;
+
+  ASSERT(donor_thread->lock_to_get->holder);
+
+  enum intr_level old_level = intr_disable ();
+
+  list_push_front(&donor_thread->lock_to_get->holder->donors, &donor_thread->donation_elem);
+  donor_thread->donee = donor_thread->lock_to_get->holder;
+  refresh_priority(donor_thread->donee, true);
+
+  intr_set_level(old_level);
+}
+
+void refresh_priority(struct thread* donee_thread, bool first_layer)
+{
+  //NOTE: this funciton could be invoked if donee thread has no donor currently.
+  if(thread_mlfqs) return;
+  enum intr_level old_level = intr_disable ();
+
+  list_sort(&donee_thread->donors, thread_greater_priority_donation_elem, NULL); //Now donors is sorted in dec order.
+  // ASSERT(!list_empty(&donee_thread->donors)); //Not this.
+  int pri_max_donation = list_empty(&donee_thread->donors) ? PRI_MIN : list_entry(list_begin(&donee_thread->donors), struct thread, donation_elem)->priority;
+  donee_thread->priority = donee_thread->priority_orig < pri_max_donation ? pri_max_donation : donee_thread->priority_orig;
+
+  if(donee_thread->donee) {
+    refresh_priority(donee_thread->donee, false);
+  }
+
+  if(first_layer) {
+    list_sort(&ready_list, thread_greater_priority_elem, NULL);
+  }
+
+  intr_set_level(old_level);
+}
+
+struct thread* get_idle_thread_ptr(void) {
+  return idle_thread;
+}
+
+void sort_ready_list(void) {
+  list_sort(&ready_list, thread_greater_priority_elem, NULL);
+}

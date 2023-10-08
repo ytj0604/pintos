@@ -7,6 +7,7 @@
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
+#include "threads/fixed-point.h"
   
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -92,8 +93,11 @@ timer_sleep (int64_t ticks)
   int64_t start = timer_ticks ();
 
   ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+  // while (timer_elapsed (start) < ticks) 
+  //   thread_yield ();
+  if(timer_elapsed (start) < ticks)
+  thread_sleep(start + ticks);
+
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -172,6 +176,36 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
+  enum intr_level old_level = intr_disable ();
+  if(ticks >= least_wakeup_tick)
+  {
+    ASSERT(!list_empty(get_delayed_list_ptr()));
+    while (!list_empty(get_delayed_list_ptr()) && list_entry(list_front(get_delayed_list_ptr()), struct thread, elem)->tick_to_wakeup <= ticks) //Here list empty is tested first. So access to list_front is safe. (Accessing to empty list doesn't happen)
+    {
+      struct list_elem* head = list_pop_front(get_delayed_list_ptr());
+      thread_unblock(list_entry(head, struct thread, elem));
+    }
+  }
+  if(list_empty(get_delayed_list_ptr()))
+  {
+    least_wakeup_tick = INT64_MAX;
+  }
+  else
+    least_wakeup_tick = list_entry(list_begin(get_delayed_list_ptr()), struct thread, elem)->tick_to_wakeup;
+
+  if(thread_mlfqs)
+  { //This part is for mlfqs
+    if(thread_current() != get_idle_thread_ptr()) thread_current()->recent_cpu = add_fp_int(thread_current()->recent_cpu, 1);
+    if(ticks%4 == 0) {
+      thread_foreach(refresh_priority_mlfqs, NULL);
+    }
+    if(ticks % TIMER_FREQ == 0) {
+      refresh_load_avg();
+      thread_foreach(refresh_recent_cpu, NULL);
+      sort_ready_list();
+    }
+  }
+  intr_set_level (old_level);
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer

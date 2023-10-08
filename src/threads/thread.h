@@ -87,11 +87,20 @@ struct thread
     enum thread_status status;          /* Thread state. */
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
-    int priority;                       /* Priority. */
+    int priority;                       /* Priority. */ //This is priority considering donation.
+    int priority_orig;                  // Original priority
     struct list_elem allelem;           /* List element for all threads list. */
-
+    int64_t tick_to_wakeup;  //If thread is delayed, the tick to wakeup.
+    struct lock* lock_to_get;      //A lock that this thread is waiting for. Do not care semaphore due to requirement.
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
+
+    struct list donors;                 //List of thread who donated priority to this thread.
+    struct list_elem donation_elem;          //Element of donors list.
+    struct thread* donee;               //A thread that this thread donated to.
+
+    int nice;
+    int recent_cpu;
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -106,6 +115,8 @@ struct thread
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
+extern int64_t least_wakeup_tick;   //the least tick to wakeup of the threads in the delayed_list.
+extern int load_avg;
 
 void thread_init (void);
 void thread_start (void);
@@ -137,5 +148,19 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+void thread_sleep(int64_t);
+bool thread_less_tick (const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED) ;
+struct list* get_delayed_list_ptr(void);
+bool thread_greater_priority_elem(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED);
+bool thread_greater_priority_donation_elem(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED);
+void donate_priority(struct thread* donor_thread);
+void refresh_priority(struct thread* donee_thread, bool first_layer);
+
+void refresh_recent_cpu(struct thread*, void* aux);
+void refresh_load_avg(void);
+void refresh_priority_mlfqs(struct thread*, void* aux);
+struct thread* get_idle_thread_ptr(void);
+void sort_ready_list(void);
 
 #endif /* threads/thread.h */
