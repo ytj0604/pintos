@@ -33,7 +33,7 @@ process_execute (const char *file_name)
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
-  fn_copy = palloc_get_page (0);
+  fn_copy = palloc_get_page (0);  //This is just a temporary page, used to transfer filename.
   if (fn_copy == NULL)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
@@ -45,6 +45,17 @@ process_execute (const char *file_name)
   return tid;
 }
 
+void
+parse_argument (char* file_name, int* argc, char* argv[]) {
+  char *token, *save_ptr;
+  for (token = strtok_r (file_name, " ", &save_ptr); token != NULL;
+      token = strtok_r (NULL, " ", &save_ptr))
+  {
+    argv[*argc] = token; //argv is pointer to each tokenized argument except for the filename.
+    (*argc)++;
+  }
+}
+
 /* A thread function that loads a user process and starts it
    running. */
 static void
@@ -54,12 +65,61 @@ start_process (void *file_name_)
   struct intr_frame if_;
   bool success;
 
+  //Number of arguments, pointer to each arguments.
+  int argc = 0;
+  char* argv[32];
+  for(int i = 0; i<32; i++) argv[i] = NULL;
+  parse_argument(file_name, &argc, argv);
+
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
+
+  /* Push arguments into stack. */
+  /* Format
+    - high
+    argv[argc-1][]
+    argv[artc-2][]
+    ..
+    argv[0] = filename
+    word-align = 0
+    argv[argc] = 0
+    argv[argc-1] = ptr to argv[argc-1][]
+    ...
+    argv[0]
+    argv = ptr to argv[0]
+    argc
+    return address = 0  
+  */
+
+  void * saved_esp = if_.esp;
+  for(int i = argc - 1; i >= 0; i--) {
+    int size = strlen(argv[i]) + 1; //Here 1 is null terminator.
+    if_.esp -= size;
+    strlcpy(if_.esp, argv[i], size);
+  }
+  //word-align
+  if_.esp -= sizeof(uint8_t);
+  *(uint8_t*)if_.esp = 0;
+  //argv[argc], should be 0
+  if_.esp -= sizeof(char*);
+  *(char*)if_.esp = 0;
+  //argv[argc-1] to argv[0]
+  for(int i = argc - 1; i >= 0; i--) {
+    saved_esp -= strlen(argv[i]) + 1;
+    if_.esp -= sizeof(char*);
+    *(char**)if_.esp = (char*)saved_esp;
+  }
+  //argv
+  if_.esp-= sizeof(char**);
+  *(char**)if_.esp = (char*)(if_.esp + sizeof(char**));
+  if_.esp -= sizeof(int);
+  *(int*) if_.esp = argc;
+  if_.esp -= sizeof (void*);
+  *(char *) if_.esp = 0;
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
@@ -88,7 +148,7 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  return -1;
+  while(1);
 }
 
 /* Free the current process's resources. */
@@ -435,7 +495,7 @@ setup_stack (void **esp)
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
   if (kpage != NULL) 
     {
-      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
+      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);  //Here, map a user page, at the top of user vitrual memory. After this can access user stack via esp.
       if (success)
         *esp = PHYS_BASE;
       else
