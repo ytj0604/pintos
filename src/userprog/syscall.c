@@ -126,13 +126,15 @@ void handle_exit(int exit_status) {
   thread_exit();
 }
 
-void validate_vaddr(void* ptr) {
-  if(!is_user_vaddr(ptr) || !pagedir_get_page(thread_current()->pagedir, ptr)) handle_exit(-1);
+void validate_vaddr(void* ptr) { //Check all 4 byte from given ptr. 
+  for(unsigned i = 0; i<4; i++) {
+    if(!is_user_vaddr(ptr + i) || !pagedir_get_page(thread_current()->pagedir, ptr + 1)) handle_exit(-1);
+  }
 }
 
 void validate_sp_with_argnum(void* sp, int arg_cnt) { 
   // This functon gets stack ptr, and the number of arguments. And then, for each of candidate pointer of argument, validate it.
-  for(int i = 0; i<arg_cnt + 1; i++) { //Here + 1 is for syscall number.
-    validate_vaddr(sp + 4 * i);
+  for(int i = 0; i<(arg_cnt + 1); i++) { //Here + 1 is for syscall number.
+    validate_vaddr(sp + i * 4);
   }
 }
