@@ -42,6 +42,15 @@ process_execute (const char *file_name)
   tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
+  else{
+    struct thread *t = find_thread_all(tid); //Maybe failed to load executable file.
+    if (t == NULL) return -1;
+    sema_down(&t->exec_sema);
+    if(t->load_success == false) return -1;
+    else { //Successfully loaded.
+      list_push_back(&thread_current()->children_list, &t->children_elem);
+    }
+  } 
   return tid;
 }
 
@@ -94,38 +103,44 @@ start_process (void *file_name_)
     argc
     return address = 0  
   */
-
-  void * saved_esp = if_.esp;
-  for(int i = argc - 1; i >= 0; i--) {
-    int size = strlen(argv[i]) + 1; //Here 1 is null terminator.
-    if_.esp -= size;
-    strlcpy(if_.esp, argv[i], size);
-  }
-  //word-align
-  if_.esp -= sizeof(uint8_t);
-  *(uint8_t*)if_.esp = 0;
-  //argv[argc], should be 0
-  if_.esp -= sizeof(char*);
-  *(char*)if_.esp = 0;
-  //argv[argc-1] to argv[0]
-  for(int i = argc - 1; i >= 0; i--) {
-    saved_esp -= strlen(argv[i]) + 1;
+  if(success) {
+    void * saved_esp = if_.esp;
+    for(int i = argc - 1; i >= 0; i--) {
+      int size = strlen(argv[i]) + 1; //Here 1 is null terminator.
+      if_.esp -= size;
+      strlcpy(if_.esp, argv[i], size);
+    }
+    //word-align
+    if_.esp -= sizeof(uint8_t);
+    *(uint8_t*)if_.esp = 0;
+    //argv[argc], should be 0
     if_.esp -= sizeof(char*);
-    *(char**)if_.esp = (char*)saved_esp;
+    *(char*)if_.esp = 0;
+    //argv[argc-1] to argv[0]
+    for(int i = argc - 1; i >= 0; i--) {
+      saved_esp -= strlen(argv[i]) + 1;
+      if_.esp -= sizeof(char*);
+      *(char**)if_.esp = (char*)saved_esp;
+    }
+    //argv
+    if_.esp-= sizeof(char**);
+    *(char**)if_.esp = (char*)(if_.esp + sizeof(char**));
+    if_.esp -= sizeof(int);
+    *(int*) if_.esp = argc;
+    if_.esp -= sizeof (void*);
+    *(char *) if_.esp = 0;
   }
-  //argv
-  if_.esp-= sizeof(char**);
-  *(char**)if_.esp = (char*)(if_.esp + sizeof(char**));
-  if_.esp -= sizeof(int);
-  *(int*) if_.esp = argc;
-  if_.esp -= sizeof (void*);
-  *(char *) if_.esp = 0;
+
+  struct thread *t = thread_current();
+  strlcpy(t->name, argv[0], strlen(argv[0]) + 1);
+  t->load_success = success;
+  sema_up(&t->exec_sema); //This informs the parent process that this thread is executing.
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
-  if (!success) 
+  if (!success) {
     thread_exit ();
-
+  }
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
@@ -146,9 +161,24 @@ start_process (void *file_name_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 {
-  while(1);
+  //Search children of current thread, and look for the given pid. 
+  struct thread* cur = thread_current();
+  struct list_elem* e;
+  e = list_head (&(cur->children_list));
+  while ((e = list_next (e)) != list_end (&cur->children_list)) 
+  { 
+    struct thread *t = list_entry(e, struct thread, children_elem);
+    if(t-> tid == child_tid) { //Here, assume that a process's pid is equal to thread's tid.
+      sema_down(&t->exit_sema);
+      int ret_status = t->exit_status;
+      sema_up(&t->cleanup_sema);
+      return ret_status;
+    }
+  }
+  //If reached here, no such child.
+  return -1;
 }
 
 /* Free the current process's resources. */
@@ -157,6 +187,21 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
+
+  //TODO: Forall child of cur, up cleanup_sema.
+  struct list_elem* e = list_head(&cur->children_list);
+  while ((e = list_next (e)) != list_end (&cur->children_list)) 
+  { 
+    struct thread *t = list_entry(e, struct thread, children_elem);
+    sema_up(&t->cleanup_sema);
+  }
+
+  sema_up(&cur->exit_sema); //At this moment, parent can see this thread is exiting.
+  sema_down(&cur->cleanup_sema); //Keep blocked until the parent call wait.
+
+  //TODO: close all files
+
+  list_remove(&cur->children_elem);
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */

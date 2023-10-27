@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -93,10 +94,21 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
-#ifdef USERPROG
+// #ifdef USERPROG //For easy view.
     /* Owned by userprog/process.c. */
-    uint32_t *pagedir;                  /* Page directory. */
-#endif
+   uint32_t *pagedir;                  /* Page directory. */
+   struct semaphore exec_sema;         // Semaphore, which indocate process started successfully.
+                                       // Up: process_start(): after load() / Down: process_craate() from the parent.
+   struct semaphore exit_sema;         // Semaphore indicates process exitted.
+                                       // Up: process_exit() / Down: process_wait(). If the parent has exitted without wait(), then value can be 1 until the terminatino of this process.
+   struct semaphore cleanup_sema;      // Semaphore indicates this thread can be cleaned-up. 
+                                       // Up: process_wait(): after exit_sema's down. And, process_exit(). If any of two condition is satisfied, then child can exit safely.
+                                       // Down: process_exit()
+   int exit_status;                    // exit status.
+   struct list children_list;          // List of children processes of this process.
+   struct list_elem children_elem;     
+   bool load_success;
+// #endif
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
@@ -137,5 +149,6 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+struct thread* find_thread_all (int);
 
 #endif /* threads/thread.h */

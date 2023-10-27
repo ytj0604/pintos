@@ -463,6 +463,12 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
+  t->exit_status = -1;
+
+  list_init(&t->children_list);
+  sema_init(&t->exec_sema, 0);
+  sema_init(&t->exit_sema, 0);
+  sema_init(&t->cleanup_sema, 0);
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
@@ -582,3 +588,17 @@ allocate_tid (void)
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
+
+//Search the all_list, and look for the process with given pid. If exists, return it. Otherwise, return NULL.
+struct thread* find_thread_all (int tid) {
+  struct list_elem *e;
+  e = list_head (&all_list);
+  while ((e = list_next (e)) != list_end (&all_list)) 
+  { 
+    struct thread *t = list_entry(e, struct thread, allelem);
+    if(t-> tid == tid) { //Here, assume that a process's pid is equal to thread's tid.
+      return t;
+    }
+  }
+  return NULL;
+}
