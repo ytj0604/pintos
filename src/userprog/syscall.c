@@ -41,7 +41,7 @@ syscall_handler (struct intr_frame *f)
       validate_sp_with_argnum(f->esp, 1);
       char* file = *(char**)(f->esp + 4);
       validate_vaddr(file);
-      process_execute(file);
+      f->eax = process_execute(file);
       break;
     }
     case SYS_WAIT: {
@@ -165,8 +165,9 @@ syscall_handler (struct intr_frame *f)
 void handle_exit(int exit_status) {
   struct thread* cur = thread_current();
   cur -> exit_status = exit_status;
-  if (strcmp(cur->name, "idle") && strcmp(cur->name, "main")) //Not kernel thread 
-    printf ("%s: exit(%d)\n", cur->name, exit_status);
+  // Print message in process_exit() to handle segfault.
+  // if (strcmp(cur->name, "idle") && strcmp(cur->name, "main")) //Not kernel thread 
+  //   printf ("%s: exit(%d)\n", cur->name, exit_status);
   thread_exit();
 }
 
@@ -188,7 +189,7 @@ void validate_fd(int fd, int closeable) {
   // Valiate given fd.
   // fd should be: fd >= 0 && fd <= 101. fd = 0 or 1 should be checked in close, ..
   // ptr to fd should not be NULL.
-  if(!(fd >= 0 && fd <= 101)) handle_exit(-1);
+  if(!(fd >= 0 && fd < MAX_FD)) handle_exit(-1);
   if(fd == 0 || fd == 1) {
     if(closeable) handle_exit(-1);
   }

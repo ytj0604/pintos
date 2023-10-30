@@ -471,7 +471,9 @@ init_thread (struct thread *t, const char *name, int priority)
   sema_init(&t->cleanup_sema, 0);
   list_init(&t->open_files);
   t->last_fd_number = 1; // FD number starts from 2;
-  for(int i = 0; i<102; i++) t->file_descriptor[i] = NULL;
+  for(int i = 0; i<MAX_FD; i++) t->file_descriptor[i] = NULL;
+  t->waited = false;
+  t->running_file = NULL;
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);

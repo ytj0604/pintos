@@ -32,6 +32,9 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
+/* Number of file descriptors per thread*/
+#define MAX_FD 256 //Thraed may have 2 ~ MAX_FD - 1 fd numbers. 
+
 /* A kernel thread or user process.
 
    Each thread structure is stored in its own 4 kB page.  The
@@ -107,18 +110,20 @@ struct thread
    struct semaphore exec_sema;         // Semaphore, which indocate process started successfully.
                                        // Up: process_start(): after load() / Down: process_craate() from the parent.
    struct semaphore exit_sema;         // Semaphore indicates process exitted.
-                                       // Up: process_exit() / Down: process_wait(). If the parent has exitted without wait(), then value can be 1 until the terminatino of this process.
+                                       // Up: process_exit() / Down: process_wait(). If the parent has exitted without wait(), then value can be 1 until the termination of this process.
    struct semaphore cleanup_sema;      // Semaphore indicates this thread can be cleaned-up. 
                                        // Up: process_wait(): after exit_sema's down. And, process_exit(). If any of two condition is satisfied, then child can exit safely.
                                        // Down: process_exit()
+   bool waited;                        // This is for double-wait. If this is true, then parent has invoked wait() for this. So return -1.
    int exit_status;                    // exit status.
    struct list children_list;          // List of children processes of this process.
    struct list_elem children_elem;     
    bool load_success;
    struct list open_files;             // List of open files of the process.
 
-   struct file* file_descriptor[102];  //Assume that at most 100 files can be opened per thread. Exit if it over 100.
+   struct file* file_descriptor[MAX_FD];  // Assume that at most 100 files can be opened per thread. Exit if it over 100.
    int last_fd_number;                 // Number that was allocated lastly. 
+   struct file* running_file;          // The file that this thread is currently executing.
 // #endif
 
     /* Owned by thread.c. */

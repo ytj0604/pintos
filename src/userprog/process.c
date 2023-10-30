@@ -171,9 +171,11 @@ process_wait (tid_t child_tid)
   { 
     struct thread *t = list_entry(e, struct thread, children_elem);
     if(t-> tid == child_tid) { //Here, assume that a process's pid is equal to thread's tid.
+      if(t->waited) return -1;
       sema_down(&t->exit_sema);
       int ret_status = t->exit_status;
       sema_up(&t->cleanup_sema);
+      t->waited = true;
       return ret_status;
     }
   }
@@ -187,6 +189,12 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
+  enum intr_level old_level;
+  
+  //print exit status.
+  if (strcmp(cur->name, "idle") && strcmp(cur->name, "main")) //Not kernel thread 
+    printf ("%s: exit(%d)\n", cur->name, cur->exit_status);
+
 
   //TODO: Forall child of cur, up cleanup_sema.
   struct list_elem* e = list_head(&cur->children_list);
@@ -194,6 +202,11 @@ process_exit (void)
   { 
     struct thread *t = list_entry(e, struct thread, children_elem);
     sema_up(&t->cleanup_sema);
+  }
+
+  if(cur->running_file) { //This should be upper than exit_sema. Because after exit_sema, parent may want to write this file. 
+    file_allow_write(cur->running_file);
+    file_close(cur->running_file); //Keep this opened to prevent being modified.
   }
 
   sema_up(&cur->exit_sema); //At this moment, parent can see this thread is exiting.
@@ -204,7 +217,12 @@ process_exit (void)
     cur->file_descriptor[i] = NULL;
   }
 
+  //Should protect list remove.
+  old_level = intr_disable ();
   list_remove(&cur->children_elem);
+  intr_set_level (old_level);
+
+
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -222,6 +240,7 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+
 }
 
 /* Sets up the CPU for running user code in the current
@@ -415,12 +434,13 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;
-
+  t->running_file = file; 
+  file_deny_write(file);
   success = true;
 
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
+  // file_close (file);
   return success;
 }
 
@@ -575,7 +595,7 @@ install_page (void *upage, void *kpage, bool writable)
 int get_new_fd(struct file* file) {
   struct thread *cur = thread_current();
   cur->last_fd_number ++;
-  ASSERT(cur->last_fd_number <= 101 && cur->last_fd_number >= 2); // 2 ~ 101 can be used. 0, 1 are occupied.
+  ASSERT(cur->last_fd_number < MAX_FD && cur->last_fd_number >= 2); // 2 ~ 101 can be used. 0, 1 are occupied.
   cur->file_descriptor[cur->last_fd_number] = file;
   return cur->last_fd_number;
 }
