@@ -15,6 +15,13 @@ enum thread_status
     THREAD_DYING        /* About to be destroyed. */
   };
 
+// Let's not use separate class, instead allocate fixed-size array in the thread struct.
+// struct file_descriptor { //A data structure that indicate an open file for each process.
+//    struct file* file;
+//    int fd_number;
+//    struct list_elem fd_elem;
+// };
+
 /* Thread identifier type.
    You can redefine this to whatever type you like. */
 typedef int tid_t;
@@ -108,6 +115,10 @@ struct thread
    struct list children_list;          // List of children processes of this process.
    struct list_elem children_elem;     
    bool load_success;
+   struct list open_files;             // List of open files of the process.
+
+   struct file* file_descriptor[102];  //Assume that at most 100 files can be opened per thread. Exit if it over 100.
+   int last_fd_number;                 // Number that was allocated lastly. 
 // #endif
 
     /* Owned by thread.c. */

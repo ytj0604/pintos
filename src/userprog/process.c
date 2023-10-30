@@ -199,7 +199,10 @@ process_exit (void)
   sema_up(&cur->exit_sema); //At this moment, parent can see this thread is exiting.
   sema_down(&cur->cleanup_sema); //Keep blocked until the parent call wait.
 
-  //TODO: close all files
+  for(int i = 2; i <= cur->last_fd_number; i++) {
+    file_close(cur->file_descriptor[i]);
+    cur->file_descriptor[i] = NULL;
+  }
 
   list_remove(&cur->children_elem);
 
@@ -567,4 +570,12 @@ install_page (void *upage, void *kpage, bool writable)
      address, then map our page there. */
   return (pagedir_get_page (t->pagedir, upage) == NULL
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
+}
+
+int get_new_fd(struct file* file) {
+  struct thread *cur = thread_current();
+  cur->last_fd_number ++;
+  ASSERT(cur->last_fd_number <= 101 && cur->last_fd_number >= 2); // 2 ~ 101 can be used. 0, 1 are occupied.
+  cur->file_descriptor[cur->last_fd_number] = file;
+  return cur->last_fd_number;
 }
