@@ -77,7 +77,8 @@ start_process (void *file_name_)
   //Number of arguments, pointer to each arguments.
   int argc = 0;
   char* argv[32];
-  for(int i = 0; i<32; i++) argv[i] = NULL;
+  int i;
+  for(i = 0; i<32; i++) argv[i] = NULL;
   parse_argument(file_name, &argc, argv);
 
   /* Initialize interrupt frame and load executable. */
@@ -105,7 +106,7 @@ start_process (void *file_name_)
   */
   if(success) {
     void * saved_esp = if_.esp;
-    for(int i = argc - 1; i >= 0; i--) {
+    for(i = argc - 1; i >= 0; i--) {
       int size = strlen(argv[i]) + 1; //Here 1 is null terminator.
       if_.esp -= size;
       strlcpy(if_.esp, argv[i], size);
@@ -117,7 +118,7 @@ start_process (void *file_name_)
     if_.esp -= sizeof(char*);
     *(char*)if_.esp = 0;
     //argv[argc-1] to argv[0]
-    for(int i = argc - 1; i >= 0; i--) {
+    for(i = argc - 1; i >= 0; i--) {
       saved_esp -= strlen(argv[i]) + 1;
       if_.esp -= sizeof(char*);
       *(char**)if_.esp = (char*)saved_esp;
@@ -211,8 +212,8 @@ process_exit (void)
 
   sema_up(&cur->exit_sema); //At this moment, parent can see this thread is exiting.
   sema_down(&cur->cleanup_sema); //Keep blocked until the parent call wait.
-
-  for(int i = 2; i <= cur->last_fd_number; i++) {
+  int i;
+  for(i = 2; i <= cur->last_fd_number; i++) {
     file_close(cur->file_descriptor[i]);
     cur->file_descriptor[i] = NULL;
   }

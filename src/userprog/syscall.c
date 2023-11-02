@@ -89,9 +89,9 @@ syscall_handler (struct intr_frame *f)
       unsigned size = *(unsigned*)(f->esp+12);
       unsigned size_read = 0;
       validate_vaddr(buffer);
-
+      unsigned i;
       if(fd == 0) { //read from keyboard input.
-        for(unsigned i = 0; i<size; i++) {
+        for(i = 0; i<size; i++) {
           buffer[i] = input_getc();
           size_read++;
         }
@@ -173,14 +173,16 @@ void handle_exit(int exit_status) {
 
 void validate_vaddr(void* ptr) { //Check all 4 byte from given ptr. 
   if(ptr == NULL) handle_exit(-1);
-  for(unsigned i = 0; i<4; i++) {
+  unsigned i;
+  for(i = 0; i<4; i++) {
     if(!is_user_vaddr(ptr + i) || !pagedir_get_page(thread_current()->pagedir, ptr + i)) handle_exit(-1);
   }
 }
 
 void validate_sp_with_argnum(void* sp, int arg_cnt) { 
   // This functon gets stack ptr, and the number of arguments. And then, for each of candidate pointer of argument, validate it.
-  for(int i = 0; i<(arg_cnt + 1); i++) { //Here + 1 is for syscall number.
+  int i;
+  for(i = 0; i<(arg_cnt + 1); i++) { //Here + 1 is for syscall number.
     validate_vaddr(sp + i * 4);
   }
 }
