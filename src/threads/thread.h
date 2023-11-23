@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/synch.h"
+#include <hash.h>
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -125,6 +126,8 @@ struct thread
    int last_fd_number;                 // Number that was allocated lastly. 
    struct file* running_file;          // The file that this thread is currently executing.
 // #endif
+
+   struct hash s_page_hash;
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
