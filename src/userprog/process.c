@@ -18,6 +18,7 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "vm/frame.h"
+#include "vm/suppage.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -74,6 +75,10 @@ start_process (void *file_name_)
   char *file_name = file_name_;
   struct intr_frame if_;
   bool success;
+
+  struct thread *t= thread_current();
+  hash_init(&t->s_page_hash, s_page_hash_hash_func, s_page_hash_less_func, NULL);
+
 
   //Number of arguments, pointer to each arguments.
   int argc = 0;
@@ -133,7 +138,7 @@ start_process (void *file_name_)
     *(char *) if_.esp = 0;
   }
 
-  struct thread *t = thread_current();
+  // struct thread *t = thread_current();
   strlcpy(t->name, argv[0], strlen(argv[0]) + 1);
   t->load_success = success;
   sema_up(&t->exec_sema); //This informs the parent process that this thread is executing.
@@ -197,8 +202,6 @@ process_exit (void)
   if (strcmp(cur->name, "idle") && strcmp(cur->name, "main")) //Not kernel thread 
     printf ("%s: exit(%d)\n", cur->name, cur->exit_status);
 
-
-  //TODO: Forall child of cur, up cleanup_sema.
   struct list_elem* e = list_head(&cur->children_list);
   while ((e = list_next (e)) != list_end (&cur->children_list)) 
   { 
@@ -324,9 +327,9 @@ struct Elf32_Phdr
 
 static bool setup_stack (void **esp);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
-static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
-                          uint32_t read_bytes, uint32_t zero_bytes,
-                          bool writable);
+// bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
+//                           uint32_t read_bytes, uint32_t zero_bytes,
+//                           bool writable);
 
 /* Loads an ELF executable from FILE_NAME into the current thread.
    Stores the executable's entry point into *EIP
@@ -418,9 +421,12 @@ load (const char *file_name, void (**eip) (void), void **esp)
                   read_bytes = 0;
                   zero_bytes = ROUND_UP (page_offset + phdr.p_memsz, PGSIZE);
                 }
-              if (!load_segment (file, file_page, (void *) mem_page,
-                                 read_bytes, zero_bytes, writable))
-                goto done;
+              // if (!load_segment (file, file_page, (void *) mem_page,
+              //                    read_bytes, zero_bytes, writable))
+              //   goto done;
+              // Instead of loading segment, set S-page table for lazy load.
+              allocate_s_page_entry((void*)mem_page, NULL, file, file_page, read_bytes, zero_bytes, writable);
+              ASSERT(check_page_fault_type((void*)mem_page) == LAZY_SEGMENT);
             }
           else
             goto done;
@@ -507,7 +513,7 @@ validate_segment (const struct Elf32_Phdr *phdr, struct file *file)
 
    Return true if successful, false if a memory allocation error
    or disk read error occurs. */
-static bool
+bool
 load_segment (struct file *file, off_t ofs, uint8_t *upage,
               uint32_t read_bytes, uint32_t zero_bytes, bool writable) 
 {
@@ -525,7 +531,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
       /* Get a page of memory. */
-      uint8_t *kpage = alloc_page_frame(upage);
+      uint8_t *kpage = alloc_page_frame(upage, true);
       if (kpage == NULL)
         return false;
 
@@ -548,6 +554,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       read_bytes -= page_read_bytes;
       zero_bytes -= page_zero_bytes;
       upage += PGSIZE;
+      unpin_frame(kpage);
     }
   return true;
 }
@@ -560,12 +567,14 @@ setup_stack (void **esp)
   uint8_t *kpage;
   bool success = false;
 
-  kpage = alloc_page_frame(((uint8_t *) PHYS_BASE) - PGSIZE);
+  kpage = alloc_page_frame(((uint8_t *) PHYS_BASE) - PGSIZE, true);
   if (kpage != NULL) 
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);  //Here, map a user page, at the top of user vitrual memory. After this can access user stack via esp.
-      if (success)
+      if (success) {
         *esp = PHYS_BASE;
+        unpin_frame(kpage);
+      }
       else
         free_frame (kpage);
     }

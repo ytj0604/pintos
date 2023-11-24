@@ -88,6 +88,7 @@ main (void)
 
   /* Initialize ourselves as a thread so we can use locks,
      then enable console locking. */
+  malloc_init ();
   thread_init ();
   console_init ();  
 
@@ -97,7 +98,6 @@ main (void)
 
   /* Initialize memory system. */
   palloc_init (user_page_limit);
-  malloc_init ();
   paging_init ();
 
   init_frame_table();

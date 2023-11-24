@@ -15,7 +15,7 @@ void init_frame_table() {
 //     // Maybe don't need this!
 // }
 
-void* alloc_page_frame(void* upage) {
+void* alloc_page_frame(void* upage, bool pin) {
     void* kpage;
     struct frame_table_entry *f;
 
@@ -23,7 +23,7 @@ void* alloc_page_frame(void* upage) {
     if((kpage = palloc_get_page(PAL_USER | PAL_ZERO))) {
         f = malloc(sizeof(struct frame_table_entry));
         ASSERT(f);
-        f->pinned = false;
+        f->pinned = pin;
         hash_insert(&frame_hash, &f->frame_hash_elem);
         list_push_back(&frame_list, &f->frame_list_elem);
         f->kpage = kpage;
@@ -31,6 +31,7 @@ void* alloc_page_frame(void* upage) {
     else {
         f = evict_page();
         ASSERT(f->pinned == false);
+        f->pinned = pin;
         kpage = f->kpage;
     }
     f->upage = upage;
@@ -86,6 +87,20 @@ void free_frame(void* kpage) {
     hash_delete(&frame_hash, &f->frame_hash_elem);
     list_remove(&f->frame_list_elem);
     free(f);
+
+    lock_release(&frame_table_lock);
+}
+
+void unpin_frame(void* kpage) {
+    lock_acquire(&frame_table_lock);
+
+    struct frame_table_entry fte_temp;
+    fte_temp.kpage = kpage;
+    struct hash_elem *h = hash_find(&frame_hash, &(fte_temp.frame_hash_elem));
+    ASSERT(h);
+    struct frame_table_entry *f = hash_entry (h, struct frame_table_entry, frame_hash_elem);
+    ASSERT(f->pinned)
+    f->pinned = false;
 
     lock_release(&frame_table_lock);
 }

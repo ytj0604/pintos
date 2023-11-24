@@ -4,7 +4,8 @@
 #include "userprog/gdt.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
-
+#include "vm/suppage.h"
+#include "threads/vaddr.h"
 /* Number of page faults processed. */
 static long long page_fault_cnt;
 
@@ -135,10 +136,28 @@ page_fault (struct intr_frame *f)
      [IA32-v3a] 5.15 "Interrupt 14--Page Fault Exception
      (#PF)". */
   asm ("movl %%cr2, %0" : "=r" (fault_addr));
-
   /* Turn interrupts back on (they were only off so that we could
      be assured of reading CR2 before it changed). */
+
+   void* fault_page_addr = (uint32_t)fault_addr - (uint32_t)fault_addr % PGSIZE;
+  enum PAGE_STATUS_TYPE page_fault_type = check_page_fault_type(fault_page_addr);
   intr_enable ();
+  ASSERT(page_fault_type != FRAME_ALLOCATED);
+  switch(page_fault_type) {
+   case LAZY_SEGMENT: {
+      handle_lazy_load(fault_page_addr);
+      return;
+      break;
+   }
+   case SWAPPED: {
+
+      //return
+      break;
+   }
+   case NONE: {
+      break;
+   }
+  }
 
   /* Count page faults. */
   page_fault_cnt++;
