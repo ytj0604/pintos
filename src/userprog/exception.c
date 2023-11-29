@@ -6,6 +6,7 @@
 #include "threads/thread.h"
 #include "vm/suppage.h"
 #include "threads/vaddr.h"
+#include "userprog/pagedir.h"
 /* Number of page faults processed. */
 static long long page_fault_cnt;
 
@@ -138,26 +139,7 @@ page_fault (struct intr_frame *f)
   asm ("movl %%cr2, %0" : "=r" (fault_addr));
   /* Turn interrupts back on (they were only off so that we could
      be assured of reading CR2 before it changed). */
-
-   void* fault_page_addr = (uint32_t)fault_addr - (uint32_t)fault_addr % PGSIZE;
-  enum PAGE_STATUS_TYPE page_fault_type = check_page_fault_type(fault_page_addr);
   intr_enable ();
-  ASSERT(page_fault_type != FRAME_ALLOCATED);
-  switch(page_fault_type) {
-   case LAZY_SEGMENT: {
-      handle_lazy_load(fault_page_addr);
-      return;
-      break;
-   }
-   case SWAPPED: {
-
-      //return
-      break;
-   }
-   case NONE: {
-      break;
-   }
-  }
 
   /* Count page faults. */
   page_fault_cnt++;
@@ -166,6 +148,42 @@ page_fault (struct intr_frame *f)
   not_present = (f->error_code & PF_P) == 0;
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
+
+   void* fault_page_addr = (void*)((uint32_t)fault_addr - (uint32_t)fault_addr % PGSIZE);
+   enum PAGE_STATUS_TYPE page_fault_type = check_page_fault_type(fault_page_addr);
+   switch(page_fault_type) {
+      case LAZY_SEGMENT: {
+         handle_lazy_load(fault_page_addr);
+         return;
+         break;
+      }
+      case SWAPPED: {
+
+         //return
+         break;
+      }
+      case NONE: {
+         if((fault_addr >= f->esp && fault_addr < PHYS_BASE) 
+         || fault_addr == f->esp - 32 || fault_addr == f->esp - 4 ) { // Need stack growth. Is this correct condition?
+            void* kpage = alloc_page_frame(fault_page_addr, true);
+            allocate_s_page_entry(fault_page_addr, kpage, NULL, 0, 0, 0, true);
+            bool success = pagedir_set_page(thread_current()->pagedir, fault_page_addr, kpage, true);
+            ASSERT(success);
+            unpin_frame(kpage);
+            return;
+         }
+         break;
+      }
+      default: {
+         break;
+      }
+   }
+   
+   if(!user) { // TO use get_user()/put_user()
+      f->eip = f->eax;
+      f->eax = 0xffffffff;
+      return;
+   }
 
   /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to
@@ -178,3 +196,19 @@ page_fault (struct intr_frame *f)
   kill (f);
 }
 
+// bool test_handle_load_or_growth(void* vaddr) { //This function tests if given vaddr is valid.
+//    //If so, just return true.
+//    //If need to load or grow stack, do it, and return true.
+//    //Otherwise, just invalid address. So return false.
+//    if(!is_user_vaddr(vaddr)) return false;
+
+//    if(pagedir_get_page(thread_current()->pagedir, vaddr)) return true;
+
+//    else {
+//       if(check_page_fault_type(vaddr) == LAZY_SEGMENT) {
+//          handle_lazy_load(vaddr - (uint32_t)vaddr % PGSIZE);
+//          return true;
+//       }
+//       else if()
+//    }
+// }

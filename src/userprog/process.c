@@ -515,15 +515,15 @@ validate_segment (const struct Elf32_Phdr *phdr, struct file *file)
    or disk read error occurs. */
 bool
 load_segment (struct file *file, off_t ofs, uint8_t *upage,
-              uint32_t read_bytes, uint32_t zero_bytes, bool writable) 
+              uint32_t read_bytes, uint32_t zero_bytes, bool writable, void** kpage_alloc) 
 {
   ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
   ASSERT (pg_ofs (upage) == 0);
   ASSERT (ofs % PGSIZE == 0);
-
+  ASSERT(read_bytes + zero_bytes == PGSIZE);
   file_seek (file, ofs);
-  while (read_bytes > 0 || zero_bytes > 0) 
-    {
+  // while (read_bytes > 0 || zero_bytes > 0) 
+  //   {
       /* Calculate how to fill this page.
          We will read PAGE_READ_BYTES bytes from FILE
          and zero the final PAGE_ZERO_BYTES bytes. */
@@ -534,7 +534,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       uint8_t *kpage = alloc_page_frame(upage, true);
       if (kpage == NULL)
         return false;
-
+      *kpage_alloc = kpage;
       /* Load this page. */
       if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
         {
@@ -555,7 +555,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       zero_bytes -= page_zero_bytes;
       upage += PGSIZE;
       unpin_frame(kpage);
-    }
+    // }
   return true;
 }
 

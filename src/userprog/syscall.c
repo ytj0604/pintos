@@ -11,8 +11,14 @@
 #include "userprog/pagedir.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
-
+#include "vm/suppage.h"
+#include "userprog/exception.h"
 static void syscall_handler (struct intr_frame *);
+
+static int get_user (const uint8_t *uaddr);
+static bool put_user (uint8_t *udst, uint8_t byte);
+
+
 
 void
 syscall_init (void) 
@@ -25,7 +31,7 @@ syscall_init (void)
 static void
 syscall_handler (struct intr_frame *f) 
 {
-  validate_vaddr(f->esp);
+  validate_vaddr(f->esp, false);
   switch (*(int*)(f->esp)) {
     case SYS_HALT: {
       validate_sp_with_argnum(f->esp, 0);
@@ -40,7 +46,7 @@ syscall_handler (struct intr_frame *f)
     case SYS_EXEC: {
       validate_sp_with_argnum(f->esp, 1);
       char* file = *(char**)(f->esp + 4);
-      validate_vaddr(file);
+      validate_vaddr(file, false);
       f->eax = process_execute(file);
       break;
     }
@@ -53,7 +59,7 @@ syscall_handler (struct intr_frame *f)
     case SYS_CREATE: {
       validate_sp_with_argnum(f->esp, 2);
       char* file = *(char**)(f->esp + 4);
-      validate_vaddr(file);
+      validate_vaddr(file, false);
       int initial_size = *(int*)(f->esp + 8);
       f->eax = filesys_create(file, initial_size);
       break;
@@ -61,14 +67,14 @@ syscall_handler (struct intr_frame *f)
     case SYS_REMOVE: {
       validate_sp_with_argnum(f->esp, 1);
       char* file = *(char**)(f->esp + 4);
-      validate_vaddr(file);
+      validate_vaddr(file, false);
       f->eax = filesys_remove(file);
       break;
     }
     case SYS_OPEN: {
       validate_sp_with_argnum(f->esp, 1);
       char* file = *(char**)(f->esp + 4);
-      validate_vaddr(file);
+      validate_vaddr(file, false);
       struct file *file_ptr = filesys_open(file);
       f->eax = file_ptr != NULL ? get_new_fd(file_ptr) : -1;
       break;
@@ -88,7 +94,12 @@ syscall_handler (struct intr_frame *f)
       uint8_t* buffer = *(void**)(f->esp+8);
       unsigned size = *(unsigned*)(f->esp+12);
       unsigned size_read = 0;
-      validate_vaddr(buffer);
+      if(size == 0) {
+        f->eax = 0;
+        break;
+      }
+      validate_buffer(buffer, size, true);
+      // if(!check_if_writable(buffer)) handle_exit(-1);
       unsigned i;
       if(fd == 0) { //read from keyboard input.
         for(i = 0; i<size; i++) {
@@ -114,7 +125,7 @@ syscall_handler (struct intr_frame *f)
       void* buffer = *(void**)(f->esp+8);
       unsigned size = *(unsigned*)(f->esp+12);
       unsigned size_wrote = 0;
-      validate_vaddr(buffer);
+      validate_buffer(buffer, size, false);
 
       if(fd == 0) handle_exit(-1);
       if(fd == 1) {
@@ -171,11 +182,26 @@ void handle_exit(int exit_status) {
   thread_exit();
 }
 
-void validate_vaddr(void* ptr) { //Check all 4 byte from given ptr. 
+void validate_vaddr(void* ptr, int writable) { //Check all 4 byte from given ptr. 
   if(ptr == NULL) handle_exit(-1);
   unsigned i;
   for(i = 0; i<4; i++) {
-    if(!is_user_vaddr(ptr + i) || !pagedir_get_page(thread_current()->pagedir, ptr + i)) handle_exit(-1);
+    // // if(!is_user_vaddr(ptr + i)) handle_exit(-1);
+    // // if(!pagedir_get_page(thread_current()->pagedir, ptr + i)) {
+    // //   if(check_page_fault_type(ptr + i) == LAZY_SEGMENT) {
+    // //     handle_lazy_load(ptr + i - (uint32_t)(ptr + i) % PGSIZE);
+    // //     if(!pagedir_get_page(thread_current()->pagedir, ptr + i)) handle_exit(-1);
+    // //   }
+    // //   else handle_exit(-1);
+    // // }
+    // if(!test_handle_load_or_growth(ptr + i)) handle_exit(-1);
+  // }
+    if(!writable) {
+      if(get_user(ptr + i) == -1) handle_exit(-1);
+    }
+    else {
+      if(put_user(ptr + i, 0) == false) handle_exit(-1);
+    }
   }
 }
 
@@ -183,7 +209,7 @@ void validate_sp_with_argnum(void* sp, int arg_cnt) {
   // This functon gets stack ptr, and the number of arguments. And then, for each of candidate pointer of argument, validate it.
   int i;
   for(i = 0; i<(arg_cnt + 1); i++) { //Here + 1 is for syscall number.
-    validate_vaddr(sp + i * 4);
+    validate_vaddr(sp + i * 4, false);
   }
 }
 
@@ -196,4 +222,44 @@ void validate_fd(int fd, int closeable) {
     if(closeable) handle_exit(-1);
   }
   else if(thread_current() -> file_descriptor[fd] == NULL) handle_exit(-1);
+}
+
+void validate_buffer(void* ptr, int size, int writable) {
+  if(ptr == NULL) handle_exit(-1);
+  unsigned i;
+  for(i = 0; i<size; i++) {
+    if(!writable) {
+      if(get_user(ptr + i) == -1) handle_exit(-1);
+    }
+    else {
+      if(put_user(ptr + i, 0) == false) handle_exit(-1);
+    }
+  }
+
+}
+
+/* Reads a byte at user virtual address UADDR.
+   UADDR must be below PHYS_BASE.
+   Returns the byte value if successful, -1 if a segfault
+   occurred. */
+static int
+get_user (const uint8_t *uaddr)
+{
+  if(!is_user_vaddr((void*)uaddr)) handle_exit(-1);
+  int result;
+  asm ("movl $1f, %0; movzbl %1, %0; 1:"
+       : "=&a" (result) : "m" (*uaddr));
+  return result;
+}
+/* Writes BYTE to user address UDST.
+   UDST must be below PHYS_BASE.
+   Returns true if successful, false if a segfault occurred. */
+static bool
+put_user (uint8_t *udst, uint8_t byte)
+{
+  if(!is_user_vaddr((void*)udst)) handle_exit(-1);
+  int error_code;
+  asm ("movl $1f, %0; movb %b2, %1; 1:"
+       : "=&a" (error_code), "=m" (*udst) : "q" (byte));
+  return error_code != -1;
 }

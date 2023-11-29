@@ -3,6 +3,7 @@
 #include "threads/vaddr.h"
 #include "threads/thread.h"
 #include "userprog/pagedir.h"
+#include "stdio.h"
 
 void init_frame_table() {
     lock_init(&frame_table_lock);
@@ -21,14 +22,25 @@ void* alloc_page_frame(void* upage, bool pin) {
 
     lock_acquire(&frame_table_lock);
     if((kpage = palloc_get_page(PAL_USER | PAL_ZERO))) {
+        printf("alloc_page_frame. Before hash insert, frame_hash's current size = %u\n", hash_size(&frame_hash));
         f = malloc(sizeof(struct frame_table_entry));
         ASSERT(f);
         f->pinned = pin;
-        hash_insert(&frame_hash, &f->frame_hash_elem);
-        list_push_back(&frame_list, &f->frame_list_elem);
         f->kpage = kpage;
+        struct hash_elem *return_hash_elem = hash_insert(&frame_hash, &f->frame_hash_elem);
+        ASSERT(!return_hash_elem); //Should be NULL.
+
+        //For debugging.
+        printf("alloc_page_frame. After hash insert, frame_hash's current size = %u\n", hash_size(&frame_hash));
+        struct frame_table_entry temp;
+        temp.kpage = kpage;
+        struct hash_elem *hash_elem_found = hash_find(&frame_hash, &temp.frame_hash_elem);
+        ASSERT(hash_elem_found);
+
+        list_push_back(&frame_list, &f->frame_list_elem);
     }
     else {
+        ASSERT(false); //Not implemented yet.
         f = evict_page();
         ASSERT(f->pinned == false);
         f->pinned = pin;
@@ -36,6 +48,7 @@ void* alloc_page_frame(void* upage, bool pin) {
     }
     f->upage = upage;
     f->holder_thread = thread_current();
+
 
     lock_release(&frame_table_lock);
     return kpage;
