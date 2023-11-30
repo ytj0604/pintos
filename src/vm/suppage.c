@@ -5,6 +5,7 @@
 #include "threads/vaddr.h"
 #include "lib/user/syscall.h"
 #include "userprog/process.h"
+#include "stdio.h"
 
 // S-page table entry is newly allocated in following cases.
 // - Stack growth. In this caes, should have allocated frame.
@@ -17,12 +18,16 @@ void allocate_s_page_entry(void *upage, uint32_t kpage,
     if(kpage != 0) { 
         struct s_page_entry *e = malloc(sizeof(struct s_page_entry));
         e->page_status_type = FRAME_ALLOCATED;
+        e->upage = upage;
         e->kpage = (void*)kpage;
         e->file = NULL;
         e->ofs = 0;
         e->read_bytes = 0;
         e->zero_bytes = 0;
         e->writable = writable;
+        enum intr_level old_level = intr_disable();
+        hash_insert(&thread_current()->s_page_hash, &e->s_page_hash_entry);
+        intr_set_level(old_level);
     }
 
     else {
@@ -30,6 +35,7 @@ void allocate_s_page_entry(void *upage, uint32_t kpage,
         int count = 0;
         while (read_bytes > 0 || zero_bytes > 0) {
             struct s_page_entry *e = malloc(sizeof(struct s_page_entry));
+            // printf("s_page entry malloc ptr=%x\n", (uint32_t)e);
             size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
             size_t page_zero_bytes = PGSIZE - page_read_bytes;
 

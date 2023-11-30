@@ -19,6 +19,7 @@
 #include "threads/vaddr.h"
 #include "vm/frame.h"
 #include "vm/suppage.h"
+#include "userprog/syscall.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -352,6 +353,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
+  lock_acquire(&io_lock);
   file = filesys_open (file_name);
   if (file == NULL) 
     {
@@ -425,7 +427,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
               //                    read_bytes, zero_bytes, writable))
               //   goto done;
               // Instead of loading segment, set S-page table for lazy load.
-              allocate_s_page_entry((void*)mem_page, NULL, file, file_page, read_bytes, zero_bytes, writable);
+              allocate_s_page_entry((void*)mem_page, (uint32_t)NULL, file, file_page, read_bytes, zero_bytes, writable);
               ASSERT(check_page_fault_type((void*)mem_page) == LAZY_SEGMENT);
             }
           else
@@ -444,7 +446,8 @@ load (const char *file_name, void (**eip) (void), void **esp)
   file_deny_write(file);
   success = true;
 
- done:
+done:
+  lock_release(&io_lock);
   /* We arrive here whether the load is successful or not. */
   // file_close (file);
   return success;
@@ -570,6 +573,7 @@ setup_stack (void **esp)
   kpage = alloc_page_frame(((uint8_t *) PHYS_BASE) - PGSIZE, true);
   if (kpage != NULL) 
     {
+      allocate_s_page_entry(((uint8_t *) PHYS_BASE) - PGSIZE, (uint32_t)kpage, NULL, 0, 0, 0, true);
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);  //Here, map a user page, at the top of user vitrual memory. After this can access user stack via esp.
       if (success) {
         *esp = PHYS_BASE;

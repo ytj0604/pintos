@@ -3,6 +3,7 @@
 #include "threads/vaddr.h"
 #include "threads/thread.h"
 #include "userprog/pagedir.h"
+#include "vm/swap.h"
 #include "stdio.h"
 
 void init_frame_table() {
@@ -22,7 +23,8 @@ void* alloc_page_frame(void* upage, bool pin) {
 
     lock_acquire(&frame_table_lock);
     if((kpage = palloc_get_page(PAL_USER | PAL_ZERO))) {
-        printf("alloc_page_frame. Before hash insert, frame_hash's current size = %u\n", hash_size(&frame_hash));
+        // size_t cur_size = hash_size(&frame_hash);
+        // printf("alloc_page_frame. Before hash insert, frame_hash's current size = %u\n", cur_size);
         f = malloc(sizeof(struct frame_table_entry));
         ASSERT(f);
         f->pinned = pin;
@@ -31,7 +33,7 @@ void* alloc_page_frame(void* upage, bool pin) {
         ASSERT(!return_hash_elem); //Should be NULL.
 
         //For debugging.
-        printf("alloc_page_frame. After hash insert, frame_hash's current size = %u\n", hash_size(&frame_hash));
+        // printf("alloc_page_frame. After hash insert, frame_hash's current size = %u\n", hash_size(&frame_hash));
         struct frame_table_entry temp;
         temp.kpage = kpage;
         struct hash_elem *hash_elem_found = hash_find(&frame_hash, &temp.frame_hash_elem);
@@ -40,7 +42,6 @@ void* alloc_page_frame(void* upage, bool pin) {
         list_push_back(&frame_list, &f->frame_list_elem);
     }
     else {
-        ASSERT(false); //Not implemented yet.
         f = evict_page();
         ASSERT(f->pinned == false);
         f->pinned = pin;
@@ -78,9 +79,7 @@ struct frame_table_entry* evict_page() {
             list_push_back(&frame_list, e);
         }
         else {
-            //evict this!
-            // swap_page(f); //TODO: to be implemented later.
-
+            swap_page(f); 
             return f;            
         }
     }

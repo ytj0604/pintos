@@ -23,6 +23,7 @@ static bool put_user (uint8_t *udst, uint8_t byte);
 void
 syscall_init (void) 
 {
+  lock_init(&io_lock);
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
@@ -32,18 +33,22 @@ static void
 syscall_handler (struct intr_frame *f) 
 {
   validate_vaddr(f->esp, false);
+  lock_acquire(&io_lock);
   switch (*(int*)(f->esp)) {
     case SYS_HALT: {
+      lock_release(&io_lock);
       validate_sp_with_argnum(f->esp, 0);
       shutdown_power_off();
       break;
     }
     case SYS_EXIT: {
+      lock_release(&io_lock);
       validate_sp_with_argnum(f->esp, 1);
       handle_exit(*(int*)(f->esp + 4));
       break;
     }
     case SYS_EXEC: {
+      lock_release(&io_lock);
       validate_sp_with_argnum(f->esp, 1);
       char* file = *(char**)(f->esp + 4);
       validate_vaddr(file, false);
@@ -51,6 +56,7 @@ syscall_handler (struct intr_frame *f)
       break;
     }
     case SYS_WAIT: {
+      lock_release(&io_lock);
       validate_sp_with_argnum(f->esp, 1);
       int pid =  *(int*)(f->esp + 4);
       f->eax = process_wait(pid);
@@ -78,7 +84,7 @@ syscall_handler (struct intr_frame *f)
       struct file *file_ptr = filesys_open(file);
       f->eax = file_ptr != NULL ? get_new_fd(file_ptr) : -1;
       break;
-    }
+    } 
     case SYS_FILESIZE: {
       validate_sp_with_argnum(f->esp, 1); 
       int fd = *(int*)(f->esp + 4);
@@ -171,11 +177,17 @@ syscall_handler (struct intr_frame *f)
     default:
       NOT_REACHED();
   }
+  if(lock_held_by_current_thread(&io_lock)) {
+    lock_release(&io_lock);
+  }
 }
 
 void handle_exit(int exit_status) {
   struct thread* cur = thread_current();
   cur -> exit_status = exit_status;
+  if(lock_held_by_current_thread(&io_lock)) {
+    lock_release(&io_lock);
+  }
   // Print message in process_exit() to handle segfault.
   // if (strcmp(cur->name, "idle") && strcmp(cur->name, "main")) //Not kernel thread 
   //   printf ("%s: exit(%d)\n", cur->name, exit_status);
@@ -226,7 +238,7 @@ void validate_fd(int fd, int closeable) {
 
 void validate_buffer(void* ptr, int size, int writable) {
   if(ptr == NULL) handle_exit(-1);
-  unsigned i;
+  int i;
   for(i = 0; i<size; i++) {
     if(!writable) {
       if(get_user(ptr + i) == -1) handle_exit(-1);

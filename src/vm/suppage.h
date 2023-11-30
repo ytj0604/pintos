@@ -35,7 +35,7 @@ struct s_page_entry {
     uint32_t zero_bytes;
     bool writable;
     // If page_status_type == SWAPPED
-    // struct swap_table_entry* swap_table_entry; TODO
+    uint32_t swap_slot_idx;
 };
 
 void allocate_s_page_entry(void *upage, uint32_t kpage, 

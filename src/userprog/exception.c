@@ -7,6 +7,7 @@
 #include "vm/suppage.h"
 #include "threads/vaddr.h"
 #include "userprog/pagedir.h"
+#include "vm/swap.h"
 /* Number of page faults processed. */
 static long long page_fault_cnt;
 
@@ -158,15 +159,15 @@ page_fault (struct intr_frame *f)
          break;
       }
       case SWAPPED: {
-
-         //return
+         reload_swapped_page(fault_page_addr);
+         return;
          break;
       }
       case NONE: {
          if((fault_addr >= f->esp && fault_addr < PHYS_BASE) 
          || fault_addr == f->esp - 32 || fault_addr == f->esp - 4 ) { // Need stack growth. Is this correct condition?
             void* kpage = alloc_page_frame(fault_page_addr, true);
-            allocate_s_page_entry(fault_page_addr, kpage, NULL, 0, 0, 0, true);
+            allocate_s_page_entry(fault_page_addr, (uint32_t)kpage, NULL, 0, 0, 0, true);
             bool success = pagedir_set_page(thread_current()->pagedir, fault_page_addr, kpage, true);
             ASSERT(success);
             unpin_frame(kpage);
@@ -180,7 +181,7 @@ page_fault (struct intr_frame *f)
    }
    
    if(!user) { // TO use get_user()/put_user()
-      f->eip = f->eax;
+      f->eip = (void*)f->eax;
       f->eax = 0xffffffff;
       return;
    }
