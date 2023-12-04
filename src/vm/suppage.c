@@ -65,6 +65,20 @@ void allocate_s_page_entry(void *upage, uint32_t kpage,
     }
 }
 
+void finalize_s_page_table() {
+    struct thread *t= thread_current();
+    struct hash_iterator i;
+    while(1) {
+        hash_first (&i, &t->s_page_hash);
+        if(!hash_next(&i)) break;
+        struct s_page_entry *s = hash_entry(hash_cur(&i), struct s_page_entry, s_page_hash_entry);
+        //Here s is any element in s-page table.
+        deallocate_s_page_entry(s->upage);
+    }
+    ASSERT(hash_empty(&t->s_page_hash));
+    hash_destroy(&t->s_page_hash, NULL);
+}
+
 enum PAGE_STATUS_TYPE check_page_status_type(void *upage) {
     upage -= (uint32_t)upage % PGSIZE;
     struct thread *t = thread_current();

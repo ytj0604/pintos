@@ -125,7 +125,7 @@ void finalize_file_mapping() {
     for(i = 2; i <= t->last_fd_number; i++) {
         delete_remove_file_mapping(i);
     }
-    //TODO: hash destroy.
+    hash_destroy(&t->file_mapping_hash, NULL);
 }
 
 void file_mapping_delete_aux_func(struct hash_elem *e, void *aux UNUSED) {

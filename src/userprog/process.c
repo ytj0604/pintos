@@ -230,6 +230,8 @@ process_exit (void)
   list_remove(&cur->children_elem);
   intr_set_level (old_level);
 
+  finalize_s_page_table();
+
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
@@ -246,7 +248,6 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
-
 }
 
 /* Sets up the CPU for running user code in the current

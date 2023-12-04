@@ -43,6 +43,7 @@ struct s_page_entry {
 
 void allocate_s_page_entry(void *upage, uint32_t kpage, 
   struct file *file, off_t ofs, uint32_t read_bytes, uint32_t zero_bytes, bool writable);
+void finalize_s_page_table(void);
 enum PAGE_STATUS_TYPE check_page_status_type(void *upage);
 void handle_lazy_load(void *upage, bool);
 bool check_if_writable(void *upage);
