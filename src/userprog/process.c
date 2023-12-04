@@ -20,6 +20,7 @@
 #include "vm/frame.h"
 #include "vm/suppage.h"
 #include "userprog/syscall.h"
+#include "vm/mm.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -79,7 +80,7 @@ start_process (void *file_name_)
 
   struct thread *t= thread_current();
   hash_init(&t->s_page_hash, s_page_hash_hash_func, s_page_hash_less_func, NULL);
-
+  hash_init(&t->file_mapping_hash, file_mapping_hash_hash_func, file_mapping_hash_less_func, NULL);
 
   //Number of arguments, pointer to each arguments.
   int argc = 0;
@@ -223,6 +224,8 @@ process_exit (void)
     cur->file_descriptor[i] = NULL;
   }
 
+  finalize_file_mapping();
+  
   //Should protect list remove.
   old_level = intr_disable ();
   list_remove(&cur->children_elem);
@@ -428,7 +431,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
               //   goto done;
               // Instead of loading segment, set S-page table for lazy load.
               allocate_s_page_entry((void*)mem_page, (uint32_t)NULL, file, file_page, read_bytes, zero_bytes, writable);
-              ASSERT(check_page_fault_type((void*)mem_page) == LAZY_SEGMENT);
+              ASSERT(check_page_status_type((void*)mem_page) == LAZY_SEGMENT);
             }
           else
             goto done;

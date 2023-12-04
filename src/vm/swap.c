@@ -55,6 +55,10 @@ void swap_page(struct frame_table_entry *f) {
     }
 }
 
+void delete_swap_page(uint32_t swap_slot_idx) {
+    bitmap_set(swap_bitmap, swap_slot_idx, false);
+}
+
 size_t sector_idx_to_slot_idx(size_t sector_idx){
     ASSERT(sector_idx < swap_total_sector_cnt);
     return sector_idx / 8;
@@ -70,7 +74,7 @@ size_t get_free_swap_slot() {
     return bitmap_scan_and_flip(swap_bitmap, 0, 1, false);
 }
 
-void reload_swapped_page(void * upage) {
+void* reload_swapped_page(void * upage) {
     struct thread *t =thread_current();
     
     struct s_page_entry temp;
@@ -93,6 +97,7 @@ void reload_swapped_page(void * upage) {
     s->kpage = kpage;
     pagedir_set_page(t->pagedir, upage, kpage, s->writable);
 
-    unpin_frame(kpage);
+    // unpin_frame(kpage);
+    return kpage;
 }
     

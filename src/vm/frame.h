@@ -29,6 +29,7 @@ void* alloc_page_frame(void*, bool pin);
 struct frame_table_entry* evict_page(void);
 void free_frame(void* kpage);
 void unpin_frame(void*);
+bool pin_frame(void* kpage);
 
 unsigned frame_hash_hash_func(const struct hash_elem *e, void *aux);
 bool frame_hash_less_func (const struct hash_elem *a, const struct hash_elem *b, void *aux);

@@ -13,6 +13,7 @@
 #include "filesys/file.h"
 #include "vm/suppage.h"
 #include "userprog/exception.h"
+#include "vm/mm.h"
 static void syscall_handler (struct intr_frame *);
 
 static int get_user (const uint8_t *uaddr);
@@ -174,6 +175,25 @@ syscall_handler (struct intr_frame *f)
       thread_current()->file_descriptor[fd] = NULL; //NULL indicates that it is closed. Don't close twice.
       break;
     }
+    case SYS_MMAP: {
+      validate_sp_with_argnum(f->esp, 2);
+      int fd = *(int*)(f->esp + 4);
+      validate_fd(fd, 1);
+      void* addr = *(void**)(f->esp + 8);
+      int mapid;
+      if(addr != NULL)
+        mapid = add_file_mapping(fd, addr);
+      else mapid = -1;
+      // if(mapid < 0) handle_exit(-1);
+      f->eax = mapid;
+      break;
+    }
+    case SYS_MUNMAP: {
+      validate_sp_with_argnum(f->esp, 1);
+      int mapid = *(int*)(f->esp + 4);
+      delete_remove_file_mapping(mapid);
+      break;
+    }
     default:
       NOT_REACHED();
   }
@@ -200,7 +220,7 @@ void validate_vaddr(void* ptr, int writable) { //Check all 4 byte from given ptr
   for(i = 0; i<4; i++) {
     // // if(!is_user_vaddr(ptr + i)) handle_exit(-1);
     // // if(!pagedir_get_page(thread_current()->pagedir, ptr + i)) {
-    // //   if(check_page_fault_type(ptr + i) == LAZY_SEGMENT) {
+    // //   if(check_page_status_type(ptr + i) == LAZY_SEGMENT) {
     // //     handle_lazy_load(ptr + i - (uint32_t)(ptr + i) % PGSIZE);
     // //     if(!pagedir_get_page(thread_current()->pagedir, ptr + i)) handle_exit(-1);
     // //   }

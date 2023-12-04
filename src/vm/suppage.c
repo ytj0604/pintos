@@ -6,6 +6,7 @@
 #include "lib/user/syscall.h"
 #include "userprog/process.h"
 #include "stdio.h"
+#include "vm/swap.h"
 
 // S-page table entry is newly allocated in following cases.
 // - Stack growth. In this caes, should have allocated frame.
@@ -25,6 +26,7 @@ void allocate_s_page_entry(void *upage, uint32_t kpage,
         e->read_bytes = 0;
         e->zero_bytes = 0;
         e->writable = writable;
+        e->modified = false;
         enum intr_level old_level = intr_disable();
         hash_insert(&thread_current()->s_page_hash, &e->s_page_hash_entry);
         intr_set_level(old_level);
@@ -47,6 +49,7 @@ void allocate_s_page_entry(void *upage, uint32_t kpage,
             e->read_bytes = page_read_bytes;
             e->zero_bytes = page_zero_bytes;
             e->writable = writable;
+            e->modified = false;
             
             enum intr_level old_level = intr_disable();
             hash_insert(&thread_current()->s_page_hash, &e->s_page_hash_entry);
@@ -61,7 +64,7 @@ void allocate_s_page_entry(void *upage, uint32_t kpage,
     }
 }
 
-enum PAGE_STATUS_TYPE check_page_fault_type(void *upage) {
+enum PAGE_STATUS_TYPE check_page_status_type(void *upage) {
     upage -= (uint32_t)upage % PGSIZE;
     struct thread *t = thread_current();
     struct s_page_entry temp;
@@ -72,6 +75,18 @@ enum PAGE_STATUS_TYPE check_page_fault_type(void *upage) {
         struct s_page_entry *ep = hash_entry(e, struct s_page_entry, s_page_hash_entry);
         return ep->page_status_type;
     }
+}
+
+void* get_kaddr(void* upage) {
+    upage -= (uint32_t)upage % PGSIZE;
+    struct thread *t = thread_current();
+    struct s_page_entry temp;
+    temp.upage = upage;
+    struct hash_elem *e = hash_find(&t->s_page_hash, &(temp.s_page_hash_entry));
+    if (!e) return NULL;
+    struct s_page_entry *ep = hash_entry(e, struct s_page_entry, s_page_hash_entry);
+    if(!(ep->page_status_type == FRAME_ALLOCATED)) return NULL;
+    return ep->kpage;
 }
 
 bool check_if_writable(void *upage) {
@@ -85,7 +100,7 @@ bool check_if_writable(void *upage) {
     return ep->writable;
 }
 
-void handle_lazy_load(void *upage) {
+void handle_lazy_load(void *upage, bool write) {
     struct thread *t = thread_current();
     struct s_page_entry temp;
     temp.upage = upage;
@@ -98,7 +113,22 @@ void handle_lazy_load(void *upage) {
         ep->read_bytes, ep->zero_bytes, ep->writable, &kpage);
     ep->page_status_type = FRAME_ALLOCATED;
     ep->kpage = kpage;
+    ep->modified = write;
 }  
+
+void deallocate_s_page_entry(void *upage) {
+// If given upage is swapped, then delete it from swap table.
+    upage -= (uint32_t)upage % PGSIZE;
+    struct thread *t = thread_current();
+    struct s_page_entry temp;
+    temp.upage = upage;
+    struct hash_elem *e = hash_find(&t->s_page_hash, &(temp.s_page_hash_entry));
+    ASSERT(e);
+    struct s_page_entry *ep = hash_entry(e, struct s_page_entry, s_page_hash_entry);
+    hash_delete(&t->s_page_hash, e);
+    if(ep->page_status_type == SWAPPED) delete_swap_page(ep->swap_slot_idx);
+    free(ep);
+}
 
 unsigned s_page_hash_hash_func(const struct hash_elem *e, void *aux UNUSED) {
     struct s_page_entry *s = hash_entry(e, struct s_page_entry, s_page_hash_entry);

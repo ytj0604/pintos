@@ -128,6 +128,7 @@ struct thread
 // #endif
 
    struct hash s_page_hash;
+   struct hash file_mapping_hash;
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */

@@ -151,15 +151,16 @@ page_fault (struct intr_frame *f)
   user = (f->error_code & PF_U) != 0;
 
    void* fault_page_addr = (void*)((uint32_t)fault_addr - (uint32_t)fault_addr % PGSIZE);
-   enum PAGE_STATUS_TYPE page_fault_type = check_page_fault_type(fault_page_addr);
+   enum PAGE_STATUS_TYPE page_fault_type = check_page_status_type(fault_page_addr);
    switch(page_fault_type) {
       case LAZY_SEGMENT: {
-         handle_lazy_load(fault_page_addr);
+         handle_lazy_load(fault_page_addr, write);
          return;
          break;
       }
       case SWAPPED: {
-         reload_swapped_page(fault_page_addr);
+         void* kpage = reload_swapped_page(fault_page_addr);
+         unpin_frame(kpage);
          return;
          break;
       }
@@ -206,7 +207,7 @@ page_fault (struct intr_frame *f)
 //    if(pagedir_get_page(thread_current()->pagedir, vaddr)) return true;
 
 //    else {
-//       if(check_page_fault_type(vaddr) == LAZY_SEGMENT) {
+//       if(check_page_status_type(vaddr) == LAZY_SEGMENT) {
 //          handle_lazy_load(vaddr - (uint32_t)vaddr % PGSIZE);
 //          return true;
 //       }

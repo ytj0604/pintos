@@ -103,6 +103,25 @@ void free_frame(void* kpage) {
     lock_release(&frame_table_lock);
 }
 
+bool pin_frame(void* kpage) {
+    if(!kpage) return false;
+    lock_acquire(&frame_table_lock);
+    struct frame_table_entry fte_temp;
+    fte_temp.kpage = kpage;
+    struct hash_elem *h = hash_find(&frame_hash, &(fte_temp.frame_hash_elem));
+    // ASSERT(h);
+    if(!h) {
+        lock_release(&frame_table_lock);
+        return false;
+    }
+    struct frame_table_entry *f = hash_entry (h, struct frame_table_entry, frame_hash_elem);
+    // ASSERT(!f->pinned)
+    f->pinned = true;
+
+    lock_release(&frame_table_lock);
+    return true;
+}
+
 void unpin_frame(void* kpage) {
     lock_acquire(&frame_table_lock);
 
