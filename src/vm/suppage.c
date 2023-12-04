@@ -7,6 +7,7 @@
 #include "userprog/process.h"
 #include "stdio.h"
 #include "vm/swap.h"
+#include "userprog/pagedir.h"
 
 // S-page table entry is newly allocated in following cases.
 // - Stack growth. In this caes, should have allocated frame.
@@ -126,7 +127,9 @@ void deallocate_s_page_entry(void *upage) {
     ASSERT(e);
     struct s_page_entry *ep = hash_entry(e, struct s_page_entry, s_page_hash_entry);
     hash_delete(&t->s_page_hash, e);
+    pagedir_clear_page(t->pagedir, upage);
     if(ep->page_status_type == SWAPPED) delete_swap_page(ep->swap_slot_idx);
+    if(ep->page_status_type == FRAME_ALLOCATED) free_frame(ep->kpage);
     free(ep);
 }
 

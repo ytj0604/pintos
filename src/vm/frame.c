@@ -94,7 +94,6 @@ void free_frame(void* kpage) {
     struct hash_elem *h = hash_find(&frame_hash, &(fte_temp.frame_hash_elem));
     ASSERT(h);
     struct frame_table_entry *f = hash_entry (h, struct frame_table_entry, frame_hash_elem);
-
     palloc_free_page(kpage);
     hash_delete(&frame_hash, &f->frame_hash_elem);
     list_remove(&f->frame_list_elem);

@@ -211,6 +211,7 @@ process_exit (void)
     sema_up(&t->cleanup_sema);
   }
 
+  finalize_file_mapping();
   if(cur->running_file) { //This should be upper than exit_sema. Because after exit_sema, parent may want to write this file. 
     file_allow_write(cur->running_file);
     file_close(cur->running_file); //Keep this opened to prevent being modified.
@@ -224,8 +225,6 @@ process_exit (void)
     cur->file_descriptor[i] = NULL;
   }
 
-  finalize_file_mapping();
-  
   //Should protect list remove.
   old_level = intr_disable ();
   list_remove(&cur->children_elem);

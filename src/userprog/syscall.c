@@ -195,7 +195,7 @@ syscall_handler (struct intr_frame *f)
       break;
     }
     default:
-      NOT_REACHED();
+      handle_exit(-1);
   }
   if(lock_held_by_current_thread(&io_lock)) {
     lock_release(&io_lock);

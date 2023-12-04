@@ -54,7 +54,10 @@ void delete_file_mapping(int mapid, bool remove) {
     struct file_mapping_entry temp;
     temp.mapid = mapid;
     struct hash_elem *he = hash_find(&t->file_mapping_hash, &temp.file_mapping_hash_entry);
-    if(!he) return;
+    if(!he) {
+        lock_release(&mm_lock);
+        return;
+    }
     struct file_mapping_entry* file_mapping_entry = 
         hash_entry(hash_find(&t->file_mapping_hash, &temp.file_mapping_hash_entry), 
         struct file_mapping_entry, file_mapping_hash_entry);
@@ -95,6 +98,10 @@ void delete_file_mapping(int mapid, bool remove) {
                     // }
                     file_write(file_mapping_entry->file, file_mapping_entry->uaddr + i * PGSIZE, ep->read_bytes);
                     unpin_frame(kpage);
+                    // printf("delete file mappingm write back!\n");
+                }
+                else {
+                    // printf("delete file mapping, but not wrote back1\n");
                 }
             case LAZY_SEGMENT: 
                 deallocate_s_page_entry(file_mapping_entry->uaddr + i * PGSIZE);
